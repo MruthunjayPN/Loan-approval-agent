@@ -5,7 +5,3 @@ venv/
 .env
 .ipynb_checkpoints/
 .DS_Store
-
-# generated artifacts — regenerate via data/generate_data.py + model/train_model.py
-data/*.csv
-model/*.pkl
