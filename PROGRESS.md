@@ -23,8 +23,14 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
   - [x] `agents/feature_engineering_agent.py` written — derives loan_to_income_ratio, one-hot encodes employment_type (all 3, no dropped baseline), orders feature_vector by reading model.pkl['feature_names'] directly (no second hardcoded order)
   - [x] `tests/sanity_check_phase2.py` written + run — clean/missing-field/out-of-range cases through Agent 1 confirmed correct; Agent 2 feature_vector count+order verified 1:1 against model.pkl['feature_names'] (11/11 match)
   - [x] Both explicit failure guards verified by hand: Agent 2 raises RuntimeError on non-PASSED validation_status, and raises ValueError if an unrecognized employment_type reaches it directly (bypassing Agent 1)
-  - [ ] Understanding checkpoint: what's in AgentState after each agent runs, why feature order is read from model.pkl instead of hardcoded — explainable unprompted **(user to confirm before Phase 3 starts)**
-- [ ] **Phase 3 — Agents 3 & 4 (ML Scoring + SHAP)** — not started
+  - [x] Understanding checkpoint confirmed by user (2026-07-14, per Phase 3 kickoff message stating Phases 0-2 "done and reviewed")
+- [x] **Phase 3 — Agents 3 & 4 (ML Scoring + SHAP)** — code + sanity check done, awaiting user's review of the 4-applicant SHAP printouts and the SHAP understanding checkpoint before Phase 4
+  - [x] `agents/scoring_agent.py` written — reads feature_vector/feature_version only; writes approval_probability, prediction_class (raw 0.5-cutoff label, explicitly NOT the policy decision), model_version, inference_latency
+  - [x] Retry policy implemented as two distinct paths: one retry only for transient OSError-family failures on model load (file lock/cold start); FileNotFoundError/UnpicklingError/EOFError (missing or corrupt file) and feature_vector length mismatch raise immediately with no retry
+  - [x] `agents/shap_agent.py` written — TreeExplainer top-3 positive + top-3 negative drivers (named, not raw indices) plus a plain-English explanation_summary
+  - [x] SHAP failure isolation implemented: try/except wraps only the SHAP computation itself (explainer + shap_values + top-driver selection); reading feature_vector/approval_probability off state happens outside it in run(), so a wiring bug (missing key) still raises instead of being swallowed as a SHAP failure
+  - [x] `tests/sanity_check_phase3.py` written + run — 4 applicants (clean low-risk, clean high-risk, borderline/ambiguous, edge case at the validation boundary) through Agents 1->2->3->4; **awaiting user's manual eyeball review of the printed output**
+  - [ ] Understanding checkpoint: one-sentence SHAP explanation ("SHAP tells you how much each feature pushed this specific prediction away from the average prediction, toward approve or reject") plus why that's different from what the raw probability alone tells you — explainable unprompted **(user to confirm before Phase 4 starts)**
 - [ ] **Phase 4 — Agent 5 (Policy + Decision) + graph wiring** — not started
 - [ ] **Phase 5 — Gradio UI + edge cases** — not started
 - [ ] **Phase 6 — README + explanation pass** — user writes this, not Claude Code
@@ -34,6 +40,8 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
 ## Open questions / flagged judgment calls
 
 - **No formal `AgentState` TypedDict/class was created in Phase 2.** Agents 1 & 2 operate on plain dicts and only touch the keys phase0-task1-agent-contracts.md assigns them (validation_status/validation_errors; feature_vector/feature_version). Formalizing a shared state type is deferred to Phase 4 when graph.py actually wires the LangGraph state object — building it now, before there's a graph to enforce it, would be a structure with no consumer yet.
+- **The Phase 3 "borderline/ambiguous" test applicant isn't actually borderline** — it scored 0.7978 (confident approve), not near the 0.4-0.6 zone R3 will treat as Refer. Reported as-is rather than tuned to fit the label (per the brief's "fix the data, don't paper over it" instinct applied to test fixtures too). If a genuine R2/R3-boundary example is needed for Phase 4/5 testing, the inputs need deliberate retuning — flagging, not fixing now.
+- **`inference_latency` and the SHAP-vs-Agent-3-probability cross-check are both additions beyond phase0-task1-agent-contracts.md's original AgentState list** — the contracts doc doesn't mention a latency field or a consistency check between Agent 3 and Agent 4. Added because they were explicitly requested (latency) or because they give real use to a documented-but-otherwise-unused input (Agent 4 reading approval_probability). Worth a conscious decision on whether either belongs in a future formalized AgentState type (see point above).
 
 ---
 
@@ -53,6 +61,12 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
 - **Unknown employment_type is checked explicitly in Agent 2**, not left to the missing/extra feature_names comparison — because the one-hot flags are three fixed named keys, not dynamically generated from the input value, an unrecognized category would otherwise resolve all three to 0 and produce a valid-shaped but wrong feature vector without tripping the missing/extra check at all.
 - **`agents/` and `tests/` both got an `__init__.py`** so `tests/sanity_check_phase2.py` can `import agents.*` reliably regardless of how it's invoked, without relying on implicit namespace packages.
 - **Agent 1's age bounds tightened to 21-70** (2026-07-13), matching `generate_data.py`'s `rng.integers(21, 71)` sampling range exactly — resolves the previously-flagged OOD gap where validation accepted ages the model never saw in training.
+- **`shap` added as a dependency** (2026-07-14) — wasn't installed; installing it pulled in `numba`/`llvmlite`/`cloudpickle`/`slicer`/`tqdm` and downgraded `numpy` 2.5.1->2.4.6 as a resolver side effect. Re-ran `tests/sanity_check_phase2.py` afterward to confirm nothing broke. `requirements.txt` regenerated via `pip freeze` to capture the full new dependency set.
+- **`shap.TreeExplainer`, not `KernelExplainer` or a generic `Explainer`** — the model is tree-based (XGBoost), and TreeExplainer is the fast, exact algorithm for that model family; no need for the slower model-agnostic approximation.
+- **SHAP contribution values are in log-odds (margin) space, not probability space** — confirmed by checking `sum(shap_values) + expected_value` reproduces the log-odds of `approval_probability`, not the probability itself. `explanation_summary` is worded around direction/ranking only, never a specific probability-point claim, to avoid a quantitatively false statement.
+- **Agent 3's retry wraps only the model-load call**, not `predict_proba` or the shape check — retries once for OSError-family failures (file lock/cold start), never for `FileNotFoundError`/corrupt-file errors or a feature-vector length mismatch, since none of those are transient.
+- **Agent 4's try/except wraps only the SHAP computation** (explainer creation through top-driver selection) — `state["feature_vector"]` / `state["approval_probability"]` are read in `run()`, outside that boundary, so a missing key (wiring bug) still raises instead of being misreported as a graceful SHAP degradation.
+- **Agent 4 actively cross-checks `approval_probability`** against a sigmoid of `sum(shap_values) + expected_value`, logging a warning on >0.01 divergence, rather than reading and discarding the value — gives real purpose to an input the contracts doc lists but doesn't otherwise use, and would surface Agent 3/Agent 4 disagreeing about the same prediction. No divergence warnings fired across any of the 4 Phase 3 sanity-check applicants.
 
 ---
 
