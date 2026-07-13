@@ -18,7 +18,12 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
   - [x] `model/train_model.py` written + explained
   - [x] `model/model.pkl` trained (test accuracy 0.778, ROC-AUC 0.726)
   - [ ] Understanding checkpoint: predict_proba vs. label, XGBoost vs. logistic regression — explainable unprompted **(user to confirm before Phase 2 starts)**
-- [ ] **Phase 2 — Agents 1 & 2 (Validation + Feature Engineering)** — not started, blocked on Phase 1 sign-off
+- [x] **Phase 2 — Agents 1 & 2 (Validation + Feature Engineering)** — code + sanity check done, awaiting user's understanding checkpoint before Phase 3
+  - [x] `agents/validation_agent.py` written — required-field, type, enum, and bounds checks; returns (validation_status, validation_errors)
+  - [x] `agents/feature_engineering_agent.py` written — derives loan_to_income_ratio, one-hot encodes employment_type (all 3, no dropped baseline), orders feature_vector by reading model.pkl['feature_names'] directly (no second hardcoded order)
+  - [x] `tests/sanity_check_phase2.py` written + run — clean/missing-field/out-of-range cases through Agent 1 confirmed correct; Agent 2 feature_vector count+order verified 1:1 against model.pkl['feature_names'] (11/11 match)
+  - [x] Both explicit failure guards verified by hand: Agent 2 raises RuntimeError on non-PASSED validation_status, and raises ValueError if an unrecognized employment_type reaches it directly (bypassing Agent 1)
+  - [ ] Understanding checkpoint: what's in AgentState after each agent runs, why feature order is read from model.pkl instead of hardcoded — explainable unprompted **(user to confirm before Phase 3 starts)**
 - [ ] **Phase 3 — Agents 3 & 4 (ML Scoring + SHAP)** — not started
 - [ ] **Phase 4 — Agent 5 (Policy + Decision) + graph wiring** — not started
 - [ ] **Phase 5 — Gradio UI + edge cases** — not started
@@ -28,7 +33,8 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
 
 ## Open questions / flagged judgment calls
 
-*(none open right now)*
+- **Agent 1's age bounds (18-100) are wider than the training data's sampling range (21-70 in generate_data.py).** Validation currently lets through ages the model never saw during training — an OOD (out-of-distribution) input risk that isn't caught anywhere yet. Not fixed now; flagging for a decision before/at Phase 3 (tighten bounds to match training range, or accept and note it as a production gap in README).
+- **No formal `AgentState` TypedDict/class was created in Phase 2.** Agents 1 & 2 operate on plain dicts and only touch the keys phase0-task1-agent-contracts.md assigns them (validation_status/validation_errors; feature_vector/feature_version). Formalizing a shared state type is deferred to Phase 4 when graph.py actually wires the LangGraph state object — building it now, before there's a graph to enforce it, would be a structure with no consumer yet.
 
 ---
 
@@ -43,6 +49,10 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
 - **Row count: 100,000**, per user request — functionally fine for both generation speed and XGBoost training time; only cost is CSV size (~5MB), acceptable for a static one-time artifact.
 - **Data CSV and model.pkl ARE committed** (2026-07-11, final call, reversed twice in one session) — first defaulted to committing them (demo convenience), then switched to gitignoring them (prod practice), then switched back: this is a demo/portfolio repo meant to be cloned and run/shown immediately, and both files are reproducible via a fixed seed (42) regardless, so committing them costs nothing but convenience gained. Worth remembering for the README's "what's fake / what changes in production" section — real repos gitignore trained artifacts and pull them from a model registry instead.
 - **libomp dependency:** XGBoost on macOS ARM needs the OpenMP runtime (`brew install libomp`) — not bundled with the pip wheel. Needed once per machine, not part of the Python venv.
+- **Agent 2 loads model.pkl directly for feature_names rather than hardcoding a duplicate order constant** (2026-07-13) — a duplicated list would recreate the exact feature-ordering-mismatch failure mode Phase 1 was designed to prevent. Path is resolved relative to the agent file (`Path(__file__).resolve().parent.parent / "model" / "model.pkl"`), not cwd, since agents will be invoked from graph.py/tests/Gradio later, not just the repo root. Cached at module level via `lru_cache` since it's read on every call otherwise.
+- **Agent 2 enforces `validation_status == "PASSED"` itself** (raises RuntimeError otherwise) rather than only documenting it as an assumption graph.py must respect — the check is cheap and the failure mode (feature-engineering a rejected/invalid application) is worse than the cost of asserting it explicitly.
+- **Unknown employment_type is checked explicitly in Agent 2**, not left to the missing/extra feature_names comparison — because the one-hot flags are three fixed named keys, not dynamically generated from the input value, an unrecognized category would otherwise resolve all three to 0 and produce a valid-shaped but wrong feature vector without tripping the missing/extra check at all.
+- **`agents/` and `tests/` both got an `__init__.py`** so `tests/sanity_check_phase2.py` can `import agents.*` reliably regardless of how it's invoked, without relying on implicit namespace packages.
 
 ---
 
