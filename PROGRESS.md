@@ -33,7 +33,6 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
 
 ## Open questions / flagged judgment calls
 
-- **Agent 1's age bounds (18-100) are wider than the training data's sampling range (21-70 in generate_data.py).** Validation currently lets through ages the model never saw during training — an OOD (out-of-distribution) input risk that isn't caught anywhere yet. Not fixed now; flagging for a decision before/at Phase 3 (tighten bounds to match training range, or accept and note it as a production gap in README).
 - **No formal `AgentState` TypedDict/class was created in Phase 2.** Agents 1 & 2 operate on plain dicts and only touch the keys phase0-task1-agent-contracts.md assigns them (validation_status/validation_errors; feature_vector/feature_version). Formalizing a shared state type is deferred to Phase 4 when graph.py actually wires the LangGraph state object — building it now, before there's a graph to enforce it, would be a structure with no consumer yet.
 
 ---
@@ -53,6 +52,7 @@ Working log for this project. Updated at each iteration. Source-of-truth design 
 - **Agent 2 enforces `validation_status == "PASSED"` itself** (raises RuntimeError otherwise) rather than only documenting it as an assumption graph.py must respect — the check is cheap and the failure mode (feature-engineering a rejected/invalid application) is worse than the cost of asserting it explicitly.
 - **Unknown employment_type is checked explicitly in Agent 2**, not left to the missing/extra feature_names comparison — because the one-hot flags are three fixed named keys, not dynamically generated from the input value, an unrecognized category would otherwise resolve all three to 0 and produce a valid-shaped but wrong feature vector without tripping the missing/extra check at all.
 - **`agents/` and `tests/` both got an `__init__.py`** so `tests/sanity_check_phase2.py` can `import agents.*` reliably regardless of how it's invoked, without relying on implicit namespace packages.
+- **Agent 1's age bounds tightened to 21-70** (2026-07-13), matching `generate_data.py`'s `rng.integers(21, 71)` sampling range exactly — resolves the previously-flagged OOD gap where validation accepted ages the model never saw in training.
 
 ---
 

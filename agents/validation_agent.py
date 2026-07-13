@@ -23,11 +23,11 @@ REQUIRED_FIELDS = [
 
 ALLOWED_EMPLOYMENT_TYPES = {"salaried", "self_employed", "unemployed"}
 
-# credit_score bounds mirror data/generate_data.py's np.clip(300, 850) exactly.
-# age bounds are a judgment call (see PROGRESS.md) — broader than the
-# generator's 21-70 sampling range, so validation currently permits ages the
-# model never saw in training.
-MIN_AGE, MAX_AGE = 18, 100
+# Both bounds mirror data/generate_data.py's sampling/clip ranges exactly
+# (age: rng.integers(21, 71); credit_score: np.clip(300, 850)) — validation
+# now rejects ages outside what the model was trained on, closing the OOD
+# gap flagged in PROGRESS.md.
+MIN_AGE, MAX_AGE = 21, 70
 MIN_CREDIT_SCORE, MAX_CREDIT_SCORE = 300, 850
 
 
