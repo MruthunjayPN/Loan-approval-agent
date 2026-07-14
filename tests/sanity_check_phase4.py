@@ -91,6 +91,21 @@ APPLICANTS = {
         "existing_loans": 2,
         "default_history": False,
     },
+    # Negative test for the R1/R2/R3 stop-on-first-match ordering: strong
+    # applicant whose probability alone would clear R3's 0.75 auto-approve
+    # bar, but loan_to_income_ratio (0.6667) sits well above R2's 0.45
+    # ceiling. Confirms R2 actually overrides an R3 auto-approve rather than
+    # merely never being contradicted by one.
+    "R2 genuinely overrides a would-be R3 auto-approve": {
+        "age": 45,
+        "annual_income": 60000.0,
+        "loan_amount": 40000.0,
+        "credit_score": 800,
+        "employment_type": "salaried",
+        "years_employed": 20,
+        "existing_loans": 0,
+        "default_history": False,
+    },
     "INVALID: missing credit_score (expect short-circuit at validation)": {
         "age": 34,
         "annual_income": 62000.0,
