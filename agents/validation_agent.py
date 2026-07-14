@@ -23,12 +23,14 @@ REQUIRED_FIELDS = [
 
 ALLOWED_EMPLOYMENT_TYPES = {"salaried", "self_employed", "unemployed"}
 
-# Both bounds mirror data/generate_data.py's sampling/clip ranges exactly
-# (age: rng.integers(21, 71); credit_score: np.clip(300, 850)) — validation
-# now rejects ages outside what the model was trained on, closing the OOD
-# gap flagged in PROGRESS.md.
+# All three bounds mirror data/generate_data.py's sampling/clip ranges
+# exactly (age: rng.integers(21, 71); credit_score: np.clip(300, 850);
+# annual_income: np.clip(base_income * multiplier, 8000, None)) —
+# validation rejects inputs outside what the model was trained on, closing
+# the OOD gaps flagged in PROGRESS.md.
 MIN_AGE, MAX_AGE = 21, 70
 MIN_CREDIT_SCORE, MAX_CREDIT_SCORE = 300, 850
+MIN_ANNUAL_INCOME = 8000
 
 
 def validate_application(application: dict[str, Any]) -> tuple[str, list[str]]:
@@ -64,8 +66,8 @@ def validate_application(application: dict[str, Any]) -> tuple[str, list[str]]:
 
     if not isinstance(annual_income, (int, float)) or isinstance(annual_income, bool):
         errors.append(f"annual_income must be numeric, got {type(annual_income).__name__}")
-    elif annual_income <= 0:
-        errors.append(f"annual_income must be positive, got {annual_income}")
+    elif annual_income < MIN_ANNUAL_INCOME:
+        errors.append(f"annual_income {annual_income} below the {MIN_ANNUAL_INCOME} floor")
 
     if not isinstance(loan_amount, (int, float)) or isinstance(loan_amount, bool):
         errors.append(f"loan_amount must be numeric, got {type(loan_amount).__name__}")
